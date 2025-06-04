@@ -35,7 +35,7 @@ const router = express.Router();
 
 
 const getAllUsers = async (req, res) => {
-  const sql = "SELECT * FROM Employees";
+  const sql = "SELECT * FROM employees";
 
   try {
     const [results] = await pool.query(sql);
