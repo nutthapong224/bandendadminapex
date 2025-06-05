@@ -5,7 +5,7 @@ const winston = require("winston");
 const cors = require("cors");
 const bodyParser = require("body-parser");
 const adminRoutes = require("./routes/adminapexRoutes")
-
+const newsRoutes = require("./routes/newsRoutes")
 // Load environment variables
 dotenv.config();
 
@@ -38,6 +38,7 @@ app.use(bodyParser.json());
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 app.use("/api/admin", adminRoutes);
+app.use("/api/news", newsRoutes);
 // Error Handler
 app.use((err, req, res, next) => {
   logger.error(err.stack);
