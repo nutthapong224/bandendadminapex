@@ -140,7 +140,7 @@ exports.addnews = async (req, res) => {
 };
 
 exports.updatenews = async (req, res) => {
-  const newsId = req.params.id; // รับ ID จาก URL parameter
+  const newsId = req.params.id;
   const {
     topic,
     content,
@@ -153,7 +153,6 @@ exports.updatenews = async (req, res) => {
   } = req.body;
 
   try {
-    // ตรวจสอบว่าข่าวที่ต้องการแก้ไขมีอยู่หรือไม่
     const [existingNews] = await pool.query(
       'SELECT * FROM news WHERE id = ?',
       [newsId]
@@ -163,7 +162,6 @@ exports.updatenews = async (req, res) => {
       return res.status(404).json({ error: 'ไม่พบข่าวที่ต้องการแก้ไข' });
     }
 
-    // ตรวจสอบหมวดหมู่ (ถ้ามีการส่ง cate_news_id มา)
     if (cate_news_id) {
       const [cateResult] = await pool.query(
         'SELECT cate_news_id FROM master_cate_news WHERE cate_news_id = ?',
@@ -177,16 +175,13 @@ exports.updatenews = async (req, res) => {
 
     let finalAttachmentId = attachment_id || existingNews[0].attachment_id;
 
-    // จัดการไฟล์อัปโหลด
     let uploadedFile = null;
     if (req.files && req.files['file_name'] && req.files['file_name'][0]) {
       uploadedFile = req.files['file_name'][0].filename;
     }
     let filePath = uploadedFile ? `/uploads/${uploadedFile}` : null;
 
-    // ถ้ามีไฟล์ใหม่หรือต้องการอัปเดต attachment
     if (uploadedFile || !finalAttachmentId) {
-      // ถ้ายังไม่มี attachment_id ให้สร้างใหม่
       if (!finalAttachmentId) {
         const [insertAttachment] = await pool.query(
           `INSERT INTO attachment (create_name, modify_name) VALUES (?, ?)`,
@@ -195,7 +190,6 @@ exports.updatenews = async (req, res) => {
         finalAttachmentId = insertAttachment.insertId;
       }
 
-      // อัปเดต attachment ถ้ามีไฟล์ใหม่
       if (uploadedFile) {
         await pool.query(
           `UPDATE attachment SET file_name = ?, file_path = ?, modify_name = ? WHERE attachment_id = ?`,
@@ -204,7 +198,6 @@ exports.updatenews = async (req, res) => {
       }
     }
 
-    // สร้าง query สำหรับอัปเดต (อัปเดตเฉพาะฟิลด์ที่ส่งมา)
     let updateFields = [];
     let updateValues = [];
 
@@ -237,14 +230,9 @@ exports.updatenews = async (req, res) => {
       updateValues.push(status);
     }
 
-    // เพิ่ม modify_date และ modify_name เสมอ
+    // ไม่ใส่ modify_name เพราะตาราง news ไม่มีฟิลด์นี้
     updateFields.push('modify_date = NOW()');
-    if (modify_name) {
-      updateFields.push('modify_name = ?');
-      updateValues.push(modify_name);
-    }
 
-    // เพิ่ม newsId ต่อท้าย values สำหรับ WHERE clause
     updateValues.push(newsId);
 
     const updateNewsQuery = `
@@ -259,9 +247,9 @@ exports.updatenews = async (req, res) => {
       return res.status(400).json({ error: 'ไม่สามารถอัปเดตข่าวได้' });
     }
 
-    // ดึงข้อมูลข่าวที่อัปเดตแล้ว
+    // ดึงข้อมูลข่าวที่อัปเดตแล้วรวม attachment
     const [updatedNews] = await pool.query(
-      `SELECT n.*, a.file_name, a.file_path 
+      `SELECT n.*, a.file_name, a.file_path, a.create_name, a.modify_name
        FROM news n 
        LEFT JOIN attachment a ON n.attachment_id = a.attachment_id 
        WHERE n.id = ?`,
@@ -276,13 +264,17 @@ exports.updatenews = async (req, res) => {
         content: updatedNews[0].content,
         cate_news_id: updatedNews[0].cate_news_id,
         attachment_id: updatedNews[0].attachment_id,
-        file_name: updatedNews[0].file_name,
-        file_path: updatedNews[0].file_path,
+        attachment: {
+          file_name: updatedNews[0].file_name,
+          file_path: updatedNews[0].file_path,
+          create_name: updatedNews[0].create_name,
+          modify_name: updatedNews[0].modify_name
+        },
         pin: updatedNews[0].pin,
         hide: updatedNews[0].hide,
         status: updatedNews[0].status,
-        modify_date: updatedNews[0].modify_date,
-        modify_name: updatedNews[0].modify_name
+        create_date: updatedNews[0].create_date,
+        modify_date: updatedNews[0].modify_date
       }
     });
 
@@ -291,6 +283,7 @@ exports.updatenews = async (req, res) => {
     res.status(500).json({ error: 'เกิดข้อผิดพลาดในการอัปเดตข่าว', detail: err.message });
   }
 };
+
 
 
 exports.getNewsById = async (req, res) => {
@@ -365,6 +358,169 @@ exports.getNewsById = async (req, res) => {
     res.status(500).json({ 
       error: 'เกิดข้อผิดพลาดในการดึงข้อมูลข่าว', 
       detail: err.message 
+    });
+  }
+};
+
+
+
+exports.getnewsbyadmin = async (req, res) => {
+  const sql = "SELECT * FROM news";
+
+  try {
+    const [results] = await pool.query(sql);
+
+    if (results.length === 0) {
+      return res.status(404).send("No news found.");
+    }
+
+    res.status(200).json(results);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Error fetching news.");
+  }
+};
+
+exports.getnewsbyuser = async (req, res) => {
+  const sql = "SELECT * FROM news WHERE hide = 0";
+
+  try {
+    const [results] = await pool.query(sql);
+
+    if (results.length === 0) {
+      return res.status(404).send("No news found.");
+    }
+
+    res.status(200).json(results);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Error fetching news.");
+  }
+};
+
+exports.hideNewsById = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    // ตรวจสอบว่า id ถูกต้องหรือไม่
+    if (!id || isNaN(id)) {
+      return res.status(400).json({ error: 'กรุณาระบุ ID ของข่าวที่ถูกต้อง' });
+    }
+
+    // อัปเดตค่า hide = 1
+    const updateQuery = `UPDATE news SET hide = 1 WHERE id = ?`;
+    const [result] = await pool.query(updateQuery, [id]);
+
+    // ถ้าไม่มีการอัปเดตแถวใดเลย แสดงว่าไม่พบ ID นี้
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'ไม่พบข่าวที่ต้องการซ่อน' });
+    }
+
+    return res.status(200).json({
+      message: `ซ่อนข่าว ID ${id} เรียบร้อยแล้ว`
+    });
+
+  } catch (err) {
+    console.error('Database error:', err);
+    return res.status(500).json({
+      error: 'เกิดข้อผิดพลาดในการซ่อนข่าว',
+      detail: err.message
+    });
+  }
+};
+
+exports.unhideNewsById = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    // ตรวจสอบว่า id ถูกต้องหรือไม่
+    if (!id || isNaN(id)) {
+      return res.status(400).json({ error: 'กรุณาระบุ ID ของข่าวที่ถูกต้อง' });
+    }
+
+    // อัปเดตค่า hide = 0
+    const updateQuery = `UPDATE news SET hide = 0 WHERE id = ?`;
+    const [result] = await pool.query(updateQuery, [id]);
+
+    // ถ้าไม่มีการอัปเดตแถวใดเลย แสดงว่าไม่พบ ID นี้
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'ไม่พบข่าวที่ต้องการซ่อน' });
+    }
+
+    return res.status(200).json({
+      message: `เลิกซ่อนข่าว ID ${id} เรียบร้อยแล้ว`
+    });
+
+  } catch (err) {
+    console.error('Database error:', err);
+    return res.status(500).json({
+      error: 'เกิดข้อผิดพลาดในการซ่อนข่าว',
+      detail: err.message
+    });
+  }
+};
+
+
+
+exports.pinNewsById = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    // ตรวจสอบว่า id ถูกต้องหรือไม่
+    if (!id || isNaN(id)) {
+      return res.status(400).json({ error: 'กรุณาระบุ ID ของข่าวที่ถูกต้อง' });
+    }
+
+    // อัปเดตค่า pin = 1
+    const updateQuery = `UPDATE news SET pin = 1 WHERE id = ?`;
+    const [result] = await pool.query(updateQuery, [id]);
+
+    // ถ้าไม่มีการอัปเดตแถวใดเลย แสดงว่าไม่พบ ID นี้
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'ไม่พบข่าวที่ต้องการซ่อน' });
+    }
+
+    return res.status(200).json({
+      message: `pin เรียบร้อยแล้ว`
+    });
+
+  } catch (err) {
+    console.error('Database error:', err);
+    return res.status(500).json({
+      error: 'เกิดข้อผิดพลาดในpin',
+      detail: err.message
+    });
+  }
+};
+
+
+exports.unpinNewsById = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    // ตรวจสอบว่า id ถูกต้องหรือไม่
+    if (!id || isNaN(id)) {
+      return res.status(400).json({ error: 'กรุณาระบุ ID ของข่าวที่ถูกต้อง' });
+    }
+
+    // อัปเดตค่า pin = 0
+    const updateQuery = `UPDATE news SET pin = 0 WHERE id = ?`;
+    const [result] = await pool.query(updateQuery, [id]);
+
+    // ถ้าไม่มีการอัปเดตแถวใดเลย แสดงว่าไม่พบ ID นี้
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'ไม่พบข่าวที่ต้องการซ่อน' });
+    }
+
+    return res.status(200).json({
+      message: `ยกเลิก pin เรียบร้อยแล้ว`
+    });
+
+  } catch (err) {
+    console.error('Database error:', err);
+    return res.status(500).json({
+      error: 'เกิดข้อผิดพลาดในpin',
+      detail: err.message
     });
   }
 };
