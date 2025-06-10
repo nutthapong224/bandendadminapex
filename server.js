@@ -6,6 +6,7 @@ const cors = require("cors");
 const bodyParser = require("body-parser");
 const adminRoutes = require("./routes/adminapexRoutes")
 const newsRoutes = require("./routes/newsRoutes")
+const employeeRoutes = require("./routes/employeeRoutes")
 // Load environment variables
 dotenv.config();
 
@@ -32,13 +33,14 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(bodyParser.json());
+
 
 // Serve static files
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 app.use("/api/admin", adminRoutes);
 app.use("/api/news", newsRoutes);
+app.use("/api/employee", employeeRoutes);
 // Error Handler
 app.use((err, req, res, next) => {
   logger.error(err.stack);
